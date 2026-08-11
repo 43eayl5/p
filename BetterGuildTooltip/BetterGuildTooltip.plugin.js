@@ -4,7 +4,7 @@
  * @authorLink https://github.com/okdevme/DiscordPlugins
  * @invite M8DBtcZjXD
  * @donate https://donationalerts.com/r/arg0nny
- * @version 1.2.5
+ * @version 1.2.6
  * @description Displays an online and total member count in the guild tooltip.
  * @website https://github.com/okdevme/DiscordPlugins/tree/master/BetterGuildTooltip
  * @source https://raw.githubusercontent.com/okdevme/DiscordPlugins/master/BetterGuildTooltip/BetterGuildTooltip.plugin.js
@@ -15,7 +15,7 @@
 const config = {
   info: {
     name: 'BetterGuildTooltip',
-    version: '1.2.5',
+    version: '1.2.6',
     description: 'Displays an online and total member count in the guild tooltip.'
   },
   changelog: [
@@ -23,7 +23,7 @@ const config = {
       type: 'fixed',
       title: 'Fixes',
       items: [
-        'Updated author GitHub username.'
+        'Fixed startup crash.'
       ]
     }
   ]
@@ -56,12 +56,17 @@ const ActionTypes = {
 const useStateFromStores = Webpack.getModule(Filters.byStrings('useStateFromStores'), { searchExports: true })
 
 const Selectors = {
-  Guild: Webpack.getByKeys('statusOffline', 'guildDetail')
+  get Guild () {
+    return Webpack.getByKeys('statusOffline', 'guildDetail') ?? {}
+  }
 }
 
 const GuildStore = Webpack.getStore('GuildStore')
-const GuildActions = Webpack.getByKeys('preload', 'closePrivateChannel')
-const GuildTooltip = [...Webpack.getWithKey(Filters.byStrings('guild', '__unsupportedReactNodeAsText'), { target: Webpack.getBySource('GuildTooltip', { raw: true })?.declarations })]
+const GuildActions = {
+  get preload () {
+    return Webpack.getByKeys('preload', 'closePrivateChannel')?.preload
+  }
+}
 
 const memberCounts = new Map()
 const onlineMemberCounts = new Map()
@@ -212,13 +217,16 @@ module.exports = class BetterGuildTooltip {
   }
 
   _preloadGuild (guild) {
-    GuildActions.preload(
+    GuildActions.preload?.(
       guild.id,
       GuildChannelStore.getDefaultChannel(guild.id).id
     )
   }
 
   patchGuildTooltip () {
+    const guildTooltipTarget = Webpack.getWithKey(Filters.byStrings('guild', '__unsupportedReactNodeAsText'), { target: Webpack.getBySource('GuildTooltip', { raw: true })?.declarations })
+    if (!guildTooltipTarget) return
+
     const callback = (index, props = {}) => (self, [{ guild }], value) => {
       if (!this.settings.displayOnline && !this.settings.displayTotal) return
       if (this.settings.displayOnline && !onlineMemberCounts.has(guild.id)) this.preloadGuild(guild)
@@ -229,7 +237,7 @@ module.exports = class BetterGuildTooltip {
       }))
     }
 
-    Patcher.after(...GuildTooltip, (self, _, value) => {
+    Patcher.after(...guildTooltipTarget, (self, _, value) => {
       const nodeRef = React.useRef()
 
       if (!this.settings.displayOnline && !this.settings.displayTotal) return
