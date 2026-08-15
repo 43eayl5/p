@@ -36,7 +36,8 @@ const {
   Patcher,
   React,
   Utils,
-  Data
+  Data,
+  Logger
 } = new BdApi(config.info.name)
 const { Filters } = Webpack
 
@@ -56,17 +57,11 @@ const ActionTypes = {
 const useStateFromStores = Webpack.getModule(Filters.byStrings('useStateFromStores'), { searchExports: true })
 
 const Selectors = {
-  get Guild () {
-    return Webpack.getByKeys('statusOffline', 'guildDetail') ?? {}
-  }
+  Guild: {}
 }
 
 const GuildStore = Webpack.getStore('GuildStore')
-const GuildActions = {
-  get preload () {
-    return Webpack.getByKeys('preload', 'closePrivateChannel')?.preload
-  }
-}
+let GuildActions = {}
 
 const memberCounts = new Map()
 const onlineMemberCounts = new Map()
@@ -197,11 +192,18 @@ function GuildTooltipCounters (props) {
 const PRELOAD_DELAY = 200
 
 module.exports = class BetterGuildTooltip {
-  start () {
-    this.patchGuildTooltip()
+  async start () {
+    try {
+      Selectors.Guild = await Webpack.waitForModule(Filters.byKeys('statusOffline', 'guildDetail')) ?? {}
+      GuildActions = await Webpack.waitForModule(Filters.byKeys('preload', 'closePrivateChannel')) ?? {}
 
-    this.preloadInProccess = false
-    this.preloadNext = null
+      this.patchGuildTooltip()
+
+      this.preloadInProccess = false
+      this.preloadNext = null
+    } catch (err) {
+      Logger.error(config.info.name, 'Failed to initialize plugin:', err)
+    }
   }
 
   preloadGuild (guild) {
@@ -217,15 +219,21 @@ module.exports = class BetterGuildTooltip {
   }
 
   _preloadGuild (guild) {
+    const defaultChannel = GuildChannelStore.getDefaultChannel(guild.id)
+    if (!defaultChannel?.id) return
+
     GuildActions.preload?.(
       guild.id,
-      GuildChannelStore.getDefaultChannel(guild.id).id
+      defaultChannel.id
     )
   }
 
   patchGuildTooltip () {
     const guildTooltipTarget = Webpack.getWithKey(Filters.byStrings('guild', '__unsupportedReactNodeAsText'), { target: Webpack.getBySource('GuildTooltip', { raw: true })?.declarations })
-    if (!guildTooltipTarget) return
+    if (!guildTooltipTarget) {
+      Logger.error(config.info.name, 'Failed to find GuildTooltip patch target.')
+      return
+    }
 
     const callback = (index, props = {}) => (self, [{ guild }], value) => {
       if (!this.settings.displayOnline && !this.settings.displayTotal) return
